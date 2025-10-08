@@ -5,12 +5,11 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 import requests
-
+import pytz
 
 # Fix for DeprecationWarning in Python 3.12+
 def adapt_datetime_iso(val):
     return val.isoformat()
-
 
 sqlite3.register_adapter(datetime, adapt_datetime_iso)
 
@@ -21,7 +20,6 @@ DATE_REGEX = re.compile(r"📅\s*(?P<date>\d{4}-\d{2}-\d{2})")
 TIME_REGEX = re.compile(r"⏰\s*(?P<time>\d{2}:\d{2})")
 TAG_REGEX = re.compile(r"(#\S+)")
 TASK_MARKER_REGEX = re.compile(r"^\s*-\s*\[\s*\]\s*")
-
 
 def parse_task_line(line):
     if not TASK_MARKER_REGEX.match(line):
@@ -47,7 +45,6 @@ def parse_task_line(line):
 
     return {"text": clean_text, "date": date_str, "time": time_str, "tags": tags}
 
-
 def setup_database():
     try:
         with sqlite3.connect(DB_FILE) as conn:
@@ -65,7 +62,6 @@ def setup_database():
         print(f"Database setup error: {e}")
         raise
 
-
 def get_config():
     config = configparser.ConfigParser()
     if not Path(CONFIG_FILE).exists():
@@ -73,10 +69,8 @@ def get_config():
     config.read(CONFIG_FILE)
     return config
 
-
 def generate_task_id(file_path, task_text):
     return hashlib.sha1(f"{file_path}:{task_text}".encode("utf-8")).hexdigest()
-
 
 def is_notification_sent(task_id):
     try:
@@ -90,7 +84,6 @@ def is_notification_sent(task_id):
         print(f"Database check error: {e}")
         return True
 
-
 def mark_notification_as_sent(task_id):
     try:
         with sqlite3.connect(DB_FILE) as conn:
@@ -102,7 +95,6 @@ def mark_notification_as_sent(task_id):
             conn.commit()
     except sqlite3.Error as e:
         print(f"Database write error: {e}")
-
 
 def format_notification(task_text, original_task_time, tags, file_name):
     title = "✅️ New task"
@@ -120,7 +112,6 @@ def format_notification(task_text, original_task_time, tags, file_name):
     message = "\n".join(message_parts)
     return title, message
 
-
 def send_gotify_notification(server_url, token, title, message):
     try:
         url = f"{server_url}/message?token={token}"
@@ -132,14 +123,16 @@ def send_gotify_notification(server_url, token, title, message):
         print(f"Gotify notification error: {e}")
         return False
 
-
 def find_and_process_tasks(config):
     vault_path = Path(config["obsidian"]["vault_path"])
     default_time_str = config["settings"]["default_notification_time"]
+    timezone_str = config.get("settings", "timezone", fallback="UTC")
+    timezone = pytz.timezone(timezone_str)
+
     exclude_dirs = {
         d.strip() for d in config["obsidian"]["exclude_dirs"].split(",") if d.strip()
     }
-    now = datetime.now()
+    now = datetime.now(timezone)
 
     all_md_files = list(vault_path.rglob("*.md"))
     filtered_files = [
@@ -160,8 +153,9 @@ def find_and_process_tasks(config):
                     continue
 
                 task_time_str = parsed_data["time"] or default_time_str
-                due_datetime_str = f"{parsed_data['date']} {task_time_str}"
-                due_datetime = datetime.strptime(due_datetime_str, "%Y-%m-%d %H:%M")
+                due_datetime_str = f'{parsed_data["date"]} {task_time_str}'
+                naive_due_datetime = datetime.strptime(due_datetime_str, "%Y-%m-%d %H:%M")
+                due_datetime = timezone.localize(naive_due_datetime)
 
                 if now >= due_datetime:
                     title, message = format_notification(
@@ -179,7 +173,6 @@ def find_and_process_tasks(config):
                     ):
                         mark_notification_as_sent(task_id)
 
-
 def main():
     try:
         print("Starting Obsidian task watcher...")
@@ -191,7 +184,6 @@ def main():
         print(f"Configuration error: {e}")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
-
 
 if __name__ == "__main__":
     main()
