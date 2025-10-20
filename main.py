@@ -143,9 +143,20 @@ def find_and_process_tasks(config):
     now = datetime.now(timezone)
 
     all_md_files = list(vault_path.rglob("*.md"))
-    filtered_files = [
-        f for f in all_md_files if not any(part in exclude_dirs for part in f.parts)
-    ]
+    filtered_files = []
+    
+    for md_file in all_md_files:
+        relative_path = md_file.relative_to(vault_path)
+        file_dir_path = str(relative_path.parent) if relative_path.parent != Path('.') else ''
+        
+        should_exclude = False
+        for exclude_dir in exclude_dirs:
+            if file_dir_path == exclude_dir or file_dir_path.startswith(exclude_dir + '/'):
+                should_exclude = True
+                break
+        
+        if not should_exclude:
+            filtered_files.append(md_file)
 
     for md_file in filtered_files:
         with open(md_file, "r", encoding="utf-8") as f:
