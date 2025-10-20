@@ -45,6 +45,14 @@ def parse_task_line(line):
 
     return {"text": clean_text, "date": date_str, "time": time_str, "tags": tags}
 
+def cleanup_database():
+    try:
+        if Path(DB_FILE).exists():
+            Path(DB_FILE).unlink()
+            print("Database cleaned up.")
+    except Exception as e:
+        print(f"Database cleanup error: {e}")
+
 def setup_database():
     try:
         with sqlite3.connect(DB_FILE) as conn:
@@ -176,8 +184,22 @@ def find_and_process_tasks(config):
 def main():
     try:
         print("Starting Obsidian task watcher...")
-        setup_database()
         config = get_config()
+        
+        default_time_str = config["settings"]["default_notification_time"]
+        timezone_str = config.get("settings", "timezone", fallback="UTC")
+        timezone = pytz.timezone(timezone_str)
+        now = datetime.now(timezone)
+        
+        default_time = datetime.strptime(default_time_str, "%H:%M").time()
+        current_time = now.time()
+        
+        if current_time < default_time:
+            print(f"Current time {current_time} is before notification time {default_time}. Cleaning up database and exiting.")
+            cleanup_database()
+            return
+        
+        setup_database()
         find_and_process_tasks(config)
         print("Watcher run complete.")
     except (FileNotFoundError, KeyError, configparser.Error) as e:
